@@ -1,8 +1,38 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'settings_page.dart';
 
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  String userName = '';
+  String userEmail = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserInfo();
+  }
+
+  Future<void> _loadUserInfo() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final data = doc.data();
+      if (data != null) {
+        setState(() {
+          userName = data['fullName'] ?? '';
+          userEmail = data['email'] ?? '';
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,33 +55,33 @@ class ProfilePage extends StatelessWidget {
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    CircleAvatar(
+                  children: [
+                    const CircleAvatar(
                       radius: 35,
                       backgroundImage: AssetImage('assets/profile.jpg'),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
-                      'NamesNames',
-                      style: TextStyle(
+                      userName,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     Text(
-                      'Names@example.com',
-                      style: TextStyle(color: Colors.white70),
+                      userEmail,
+                      style: const TextStyle(color: Colors.white70),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
               ListTile(
-                tileColor: Color(0xFFE0F2F1),
-                leading: Icon(Icons.settings),
-                title: Text('الإعدادات'),
-                trailing: Icon(Icons.arrow_back_ios_new),
+                tileColor: const Color(0xFFE0F2F1),
+                leading: const Icon(Icons.settings),
+                title: const Text('الإعدادات'),
+                trailing: const Icon(Icons.arrow_back_ios_new),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -61,10 +91,13 @@ class ProfilePage extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               ListTile(
-                tileColor: Color(0xFFFFEBEE),
-                leading: Icon(Icons.logout, color: Colors.red),
-                title: Text('تسجيل خروج', style: TextStyle(color: Colors.red)),
-                onTap: () {},
+                tileColor: const Color(0xFFFFEBEE),
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text('تسجيل خروج', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  FirebaseAuth.instance.signOut();
+                  // من هنا يمكن توجيه المستخدم إلى شاشة تسجيل الدخول
+                },
               ),
             ],
           ),

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // استدعاء الفايربيز
 import 'forgot_password.dart';
-import 'package:nabihni/screens/home_screen.dart'; // لازم الملف يكون موجود فعليًا
-import 'package:nabihni/screens/auth/sign_up.dart'; // إضافة استيراد صفحة التسجيل
+import 'package:nabihni/screens/home_screen.dart'; 
+import 'package:nabihni/screens/auth/sign_up.dart';
 
 class SignInPage extends StatefulWidget {
   const SignInPage({super.key});
@@ -11,7 +12,12 @@ class SignInPage extends StatefulWidget {
 }
 
 class _SignInPageState extends State<SignInPage> {
-  bool _isPasswordObscured = true; // متغير للتحكم في إخفاء كلمة المرور
+  bool _isPasswordObscured = true;
+
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  bool _isLoading = false; // علشان نعرض loading أثناء تسجيل الدخول
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +52,7 @@ class _SignInPageState extends State<SignInPage> {
               ),
               const SizedBox(height: 8),
               TextField(
+                controller: _emailController,
                 decoration: InputDecoration(
                   hintText: 'ضع بريدك الإلكتروني هنا',
                   border: OutlineInputBorder(
@@ -64,6 +71,7 @@ class _SignInPageState extends State<SignInPage> {
               ),
               const SizedBox(height: 8),
               TextField(
+                controller: _passwordController,
                 obscureText: _isPasswordObscured,
                 decoration: InputDecoration(
                   hintText: 'ضع كلمة المرور هنا',
@@ -110,33 +118,30 @@ class _SignInPageState extends State<SignInPage> {
 
               const SizedBox(height: 8),
 
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (context) => const HomePage()),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  "تسجيل الدخول",
-                  textAlign: TextAlign.right,
-                  textDirection: TextDirection.rtl,
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
+              _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                      onPressed: _signIn,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.teal,
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        "تسجيل الدخول",
+                        textAlign: TextAlign.right,
+                        textDirection: TextDirection.rtl,
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
 
               const SizedBox(height: 12),
 
               OutlinedButton(
                 onPressed: () {
-                  // هنا تعمل الدخول كزائر
+                  // الدخول كزائر - لسه متعملتش
                 },
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 50),
@@ -224,5 +229,48 @@ class _SignInPageState extends State<SignInPage> {
         child: Image.asset(path, width: 30, height: 30, fit: BoxFit.contain),
       ),
     );
+  }
+
+  Future<void> _signIn() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('❗ البريد الإلكتروني وكلمة المرور مطلوبين')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      // ✅ تسجيل الدخول تم بنجاح
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomePage()),
+      );
+    } on FirebaseAuthException catch (e) {
+      String errorMessage = 'حدث خطأ أثناء تسجيل الدخول';
+      if (e.code == 'user-not-found') {
+        errorMessage = '❗ المستخدم غير موجود';
+      } else if (e.code == 'wrong-password') {
+        errorMessage = '❗ كلمة المرور خاطئة';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage)),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 }
