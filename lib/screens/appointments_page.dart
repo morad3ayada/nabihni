@@ -1,6 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class AppointmentsPage extends StatefulWidget {
   const AppointmentsPage({super.key});
@@ -14,39 +15,65 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
   DateTime? _selectedDay;
 
   List<Map<String, dynamic>> _appointments = [];
-
-  final String userId = "/users/NDE3kwLTd6MRN2HLvUD1HnwdLYI2"; // عدّله حسب حالة الدخول
+  final _auth = FirebaseAuth.instance;
+  final _firestore = FirebaseFirestore.instance;
 
   @override
   void initState() {
     super.initState();
-    _fetchAppointmentsForDate(_focusedDay);
+    _loadAppointments();
   }
 
-  void _fetchAppointmentsForDate(DateTime date) async {
-    String selectedDate = _formatDate(date);
+  Future<void> _loadAppointments() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
 
-    QuerySnapshot snapshot = await FirebaseFirestore.instance
-        .collection('Medicine_Adherence')
-        .where('user_ID', isEqualTo: userId)
-        .get();
+    final selectedDate = _formatDateTimeForComparison(
+      _selectedDay ?? _focusedDay,
+    );
 
-    List<Map<String, dynamic>> loadedAppointments = [];
+    final List<Map<String, dynamic>> loadedAppointments = [];
 
-    for (var doc in snapshot.docs) {
-      var data = doc.data() as Map<String, dynamic>;
-      DateTime takenTime = DateTime.parse(data['time_taken'].toDate().toString());
-
-      if (_formatDate(takenTime) == selectedDate) {
-        // احضار اسم الدواء من الـ medication_id
-        DocumentSnapshot medSnapshot = await FirebaseFirestore.instance
-            .doc(data['medication_id'])
+    // Load medications
+    final medsSnapshot =
+        await _firestore
+            .collection('Medications')
+            .where('UserID', isEqualTo: user.uid)
             .get();
-        String medName = (medSnapshot.data() as Map<String, dynamic>)['name'];
 
+    for (var doc in medsSnapshot.docs) {
+      final data = doc.data();
+      final doseTimes = data['Dose_times'] as List<dynamic>? ?? [];
+
+      for (var doseTime in doseTimes) {
+        if (doseTime != null && _isSameDay(doseTime.toDate(), selectedDate)) {
+          loadedAppointments.add({
+            "title": data['Medicine_name'],
+            "subtitle": data['Medication_type'],
+            "type": "medicine",
+            "isTaken": data['status'] ?? false,
+          });
+        }
+      }
+    }
+
+    // Load checkups
+    final checkupsSnapshot =
+        await _firestore
+            .collection('Patient_Records')
+            .where('UserID', isEqualTo: user.uid)
+            .get();
+
+    for (var doc in checkupsSnapshot.docs) {
+      final data = doc.data();
+      final checkupDate = data['checkup_date']?.toDate();
+
+      if (checkupDate != null && _isSameDay(checkupDate, selectedDate)) {
         loadedAppointments.add({
-          "name": medName,
-          "isTaken": data['status'],
+          "title": data['doctor_name'],
+          "subtitle": data['checkup_category'], // تغيير هنا
+          "type": "checkup",
+          "isTaken": data['status'] ?? false,
         });
       }
     }
@@ -84,7 +111,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                   _selectedDay = selectedDay;
                   _focusedDay = focusedDay;
                 });
-                _fetchAppointmentsForDate(selectedDay);
+                _loadAppointments();
               },
               calendarStyle: CalendarStyle(
                 todayDecoration: BoxDecoration(
@@ -123,52 +150,95 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
             const SizedBox(height: 24),
             _appointments.isNotEmpty
                 ? Expanded(
-                    child: ListView.builder(
-                      itemCount: _appointments.length,
-                      itemBuilder: (context, index) {
-                        var item = _appointments[index];
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16.0, vertical: 8.0),
-                          child:
-                              _buildMedicineItem(item["name"], item["isTaken"]),
-                        );
-                      },
-                    ),
-                  )
-                : const Padding(
-                    padding: EdgeInsets.only(top: 50),
-                    child: Text(
-                      "لا يوجد مواعيد لهذا اليوم",
-                      style: TextStyle(fontSize: 16, color: Colors.grey),
-                    ),
+                  child: ListView.builder(
+                    itemCount: _appointments.length,
+                    itemBuilder: (context, index) {
+                      var item = _appointments[index];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16.0,
+                          vertical: 8.0,
+                        ),
+                        child: _buildSimpleAppointmentItem(item),
+                      );
+                    },
                   ),
+                )
+                : const Padding(
+                  padding: EdgeInsets.only(top: 50),
+                  child: Text(
+                    "لا يوجد مواعيد لهذا اليوم",
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildMedicineItem(String name, bool isTaken) {
+  Widget _buildSimpleAppointmentItem(Map<String, dynamic> appointment) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 3,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Image.asset("assets/pill.png", width: 32),
-          Text(name),
+          // الصورة
+          appointment['type'] == "medicine"
+              ? Image.asset("assets/pill.png", width: 40)
+              : Image.asset("assets/doctor.jpg", width: 40),
+
+          const SizedBox(width: 16),
+
+          // المحتوى النصي
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  appointment['title'],
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (appointment['subtitle'] != null)
+                  Text(
+                    appointment['subtitle'],
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                  ),
+              ],
+            ),
+          ),
+
+          // حالة الموعد
           Icon(
-            isTaken ? Icons.check_circle : Icons.cancel,
-            color: isTaken ? Colors.green : Colors.red,
+            appointment['isTaken'] ? Icons.check_circle : Icons.cancel,
+            color: appointment['isTaken'] ? Colors.green : Colors.red,
+            size: 28,
           ),
         ],
       ),
     );
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  DateTime _formatDateTimeForComparison(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
   }
 
   String _getArabicDayName(int weekday) {
@@ -190,9 +260,5 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
       default:
         return "";
     }
-  }
-
-  String _formatDate(DateTime date) {
-    return "${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
   }
 }

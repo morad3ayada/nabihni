@@ -207,7 +207,7 @@ class _SignInPageState extends State<SignInPage> {
       // ✅ حل مشكلة الرجوع لتسجيل الدخول بعد تسجيل الدخول:
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => const HomeContent()),
+        MaterialPageRoute(builder: (_) => const HomePage()),
         (route) => false,
       );
     } on FirebaseAuthException catch (e) {

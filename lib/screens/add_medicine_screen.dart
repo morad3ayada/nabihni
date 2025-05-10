@@ -1,3 +1,4 @@
+// الاستيرادات كما هي...
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -11,16 +12,45 @@ class AddMedicineScreen extends StatefulWidget {
 
 class _AddMedicineScreenState extends State<AddMedicineScreen> {
   final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _doseController = TextEditingController();
-  final TextEditingController _pillCountController = TextEditingController();
+  final TextEditingController _timeController = TextEditingController();
+  final TextEditingController _durationController = TextEditingController();
 
-  String _selectedDuration = '7 أيام';
+  String _selectedCategory = 'مسكن';
+  String _selectedMedicineForm = 'أقراص';
   bool _isLoading = false;
+  int _dosageFrequency = 1;
+  final List<DateTime> _doseTimes = [];
+
+  final List<String> _categories = [
+    'مسكن',
+    'مضاد حيوي',
+    'فيتامين',
+    'دواء مزمن',
+    'مضاد التهاب',
+    'مضاد اكتئاب',
+    'مهدئ',
+    'دواء للضغط',
+    'دواء للسكر',
+    'أخرى'
+  ];
+
+  final List<String> _medicineForms = [
+    'أقراص',
+    'شراب',
+    'حقن',
+    'مرهم',
+    'كبسولات',
+    'قطرات',
+    'بخاخ',
+    'تحاميل',
+    'جل',
+    'أخرى'
+  ];
 
   Future<void> _addMedicine() async {
     if (_nameController.text.isEmpty ||
-        _doseController.text.isEmpty ||
-        _pillCountController.text.isEmpty) {
+        _timeController.text.isEmpty ||
+        _durationController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('يرجى ملء جميع الحقول')),
       );
@@ -33,13 +63,37 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("لم يتم العثور على المستخدم");
 
+      final int durationDays = int.tryParse(_durationController.text.trim()) ?? 7;
+
+      final Timestamp startDate = Timestamp.now();
+      final Timestamp endDate =
+          Timestamp.fromDate(DateTime.now().add(Duration(days: durationDays)));
+
+      // توليد مواعيد الجرعات
+      _doseTimes.clear();
+      final int baseHour = int.tryParse(_timeController.text.trim()) ?? 8;
+      final double interval = 24 / _dosageFrequency;
+
+      for (int day = 0; day < durationDays; day++) {
+        for (int i = 0; i < _dosageFrequency; i++) {
+          int hour = (baseHour + (interval * i).round()) % 24;
+          final doseTime = DateTime.now()
+              .add(Duration(days: day))
+              .copyWith(hour: hour, minute: 0, second: 0, millisecond: 0, microsecond: 0);
+          _doseTimes.add(doseTime);
+        }
+      }
+
       await FirebaseFirestore.instance.collection('Medications').add({
-        'Medicine_name': _nameController.text,
-        'Dosage_frequency': int.parse(_doseController.text),
-        'Pill_count': int.parse(_pillCountController.text),
-        'Medication_duration': _selectedDuration,
-        'Medication_type': 'مسكن', // يمكنك تغييره لاحقًا
         'UserID': user.uid,
+        'Medicine_name': _nameController.text,
+        'Medication_category': _selectedCategory,
+        'Medicine_form': _selectedMedicineForm,
+        'Dosage_frequency': _dosageFrequency,
+        'Medication_duration': durationDays,
+        'start_date': startDate,
+        'end_date': endDate,
+        'Dose_times': _doseTimes.map((e) => Timestamp.fromDate(e)).toList(),
         'Created_at': FieldValue.serverTimestamp(),
       });
 
@@ -84,33 +138,17 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
               Expanded(
                 child: ListView(
                   children: [
-                    _buildCard(
-                      child: _buildTextField(
-                        _nameController,
-                        'اسم الدواء',
-                        'اكتب هنا...',
-                      ),
-                    ),
+                    _buildCard(child: _buildTextField(_nameController, 'اسم الدواء', 'اكتب هنا...')),
                     const SizedBox(height: 12),
-                    _buildCard(
-                      child: _buildTextField(
-                        _doseController,
-                        'الجرعة يومياً',
-                        '2',
-                        isNumber: true,
-                      ),
-                    ),
+                    _buildCard(child: _buildTextField(_durationController, 'مدة العلاج بالأيام', 'مثال: 7', isNumber: true)),
                     const SizedBox(height: 12),
-                    _buildCard(child: _buildDropdown()),
+                    _buildCard(child: _buildDropdownCategory()),
                     const SizedBox(height: 12),
-                    _buildCard(
-                      child: _buildTextField(
-                        _pillCountController,
-                        'عدد الأقراص',
-                        '12',
-                        isNumber: true,
-                      ),
-                    ),
+                    _buildCard(child: _buildDropdownMedicineForm()),
+                    const SizedBox(height: 12),
+                    _buildCard(child: _buildTextField(_timeController, 'ساعة بداية الجرعات (مثال: 8)', '8', isNumber: true)),
+                    const SizedBox(height: 12),
+                    _buildCard(child: _buildDropdownFrequency()),
                   ],
                 ),
               ),
@@ -127,10 +165,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                   onPressed: _isLoading ? null : _addMedicine,
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                          'إضافة',
-                          style: TextStyle(fontSize: 16, color: Colors.white),
-                        ),
+                      : const Text('إضافة', style: TextStyle(fontSize: 16, color: Colors.white)),
                 ),
               ),
             ],
@@ -151,12 +186,8 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
     );
   }
 
-  Widget _buildTextField(
-    TextEditingController controller,
-    String label,
-    String hint, {
-    bool isNumber = false,
-  }) {
+  Widget _buildTextField(TextEditingController controller, String label, String hint,
+      {bool isNumber = false}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -175,21 +206,18 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
               borderRadius: BorderRadius.circular(8),
               borderSide: BorderSide.none,
             ),
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 14,
-              horizontal: 12,
-            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildDropdown() {
+  Widget _buildDropdownCategory() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('مدة العلاج', style: TextStyle(fontWeight: FontWeight.bold)),
+        const Text('تصنيف العلاج', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -198,23 +226,83 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
             borderRadius: BorderRadius.circular(8),
           ),
           child: DropdownButton<String>(
-            value: _selectedDuration,
+            value: _selectedCategory,
             underline: const SizedBox(),
             isExpanded: true,
             icon: const Icon(Icons.arrow_drop_down),
             alignment: Alignment.centerRight,
-            items: ['7 أيام', '14 يوم', '30 يوم'].map((value) {
+            items: _categories.map((value) {
               return DropdownMenuItem<String>(
                 value: value,
                 alignment: Alignment.centerRight,
                 child: Text(value),
               );
             }).toList(),
-            onChanged: (value) {
-              setState(() {
-                _selectedDuration = value!;
-              });
-            },
+            onChanged: (value) => setState(() => _selectedCategory = value!),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdownMedicineForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('نوع العلاج', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButton<String>(
+            value: _selectedMedicineForm,
+            underline: const SizedBox(),
+            isExpanded: true,
+            icon: const Icon(Icons.arrow_drop_down),
+            alignment: Alignment.centerRight,
+            items: _medicineForms.map((value) {
+              return DropdownMenuItem<String>(
+                value: value,
+                alignment: Alignment.centerRight,
+                child: Text(value),
+              );
+            }).toList(),
+            onChanged: (value) => setState(() => _selectedMedicineForm = value!),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdownFrequency() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('عدد الجرعات يومياً', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButton<int>(
+            value: _dosageFrequency,
+            underline: const SizedBox(),
+            isExpanded: true,
+            icon: const Icon(Icons.arrow_drop_down),
+            alignment: Alignment.centerRight,
+            items: [1, 2, 3, 4].map((value) {
+              return DropdownMenuItem<int>(
+                value: value,
+                alignment: Alignment.centerRight,
+                child: Text('$value'),
+              );
+            }).toList(),
+            onChanged: (value) => setState(() => _dosageFrequency = value!),
           ),
         ),
       ],

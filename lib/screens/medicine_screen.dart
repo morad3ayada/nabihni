@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 class MedicationPage extends StatefulWidget {
-  const MedicationPage({Key? key}) : super(key: key);
+  const MedicationPage({super.key});
 
   @override
   State<MedicationPage> createState() => _MedicationPageState();
@@ -13,6 +14,32 @@ class _MedicationPageState extends State<MedicationPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  final List<String> _medicineForms = [
+    'أقراص',
+    'شراب',
+    'حقن',
+    'مرهم',
+    'كبسولات',
+    'قطرات',
+    'بخاخ',
+    'تحاميل',
+    'جل',
+    'أخرى'
+  ];
+
+  final List<String> _categories = [
+    'مسكن',
+    'مضاد حيوي',
+    'فيتامين',
+    'دواء مزمن',
+    'مضاد التهاب',
+    'مضاد اكتئاب',
+    'مهدئ',
+    'دواء للضغط',
+    'دواء للسكر',
+    'أخرى'
+  ];
+
   Future<void> deleteMedication(String docId) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -20,8 +47,12 @@ class _MedicationPageState extends State<MedicationPage> {
         title: const Text('تأكيد الحذف'),
         content: const Text('هل تريد حذف هذا العلاج؟'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('حذف')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('حذف')),
         ],
       ),
     );
@@ -35,51 +66,193 @@ class _MedicationPageState extends State<MedicationPage> {
   }
 
   Future<void> editMedication(String docId, Map<String, dynamic> data) async {
-    final nameController = TextEditingController(text: data['Medicine_name'] ?? '');
-    final typeController = TextEditingController(text: data['Medication_type'] ?? '');
-    final durationController = TextEditingController(text: data['Medication_duration'] ?? '');
-    final freqController = TextEditingController(
-  text: data['Dosage_frequency']?.toString() ?? '',
-);
-    final countController = TextEditingController(
-      text: data['Pill_count'] != null ? data['Pill_count'].toString() : '',
-    );
+    final nameController =
+        TextEditingController(text: data['Medicine_name'] ?? '');
+    final durationController = TextEditingController(
+        text: data['Medication_duration']?.toString() ?? '');
+    final freqController =
+        TextEditingController(text: data['Dosage_frequency']?.toString() ?? '');
+    final timeController = TextEditingController(
+        text: data['Dose_times']?.isNotEmpty == true
+            ? (data['Dose_times'][0] as Timestamp).toDate().hour.toString()
+            : '8');
+
+    String selectedCategory = data['Medication_category'] ?? 'مسكن';
+    String selectedMedicineForm = data['Medicine_form'] ?? 'أقراص';
+    int dosageFrequency = data['Dosage_frequency'] ?? 1;
 
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('تعديل العلاج'),
-        content: SingleChildScrollView(
-          child: Column(
-            children: [
-              TextField(controller: nameController, decoration: const InputDecoration(labelText: 'اسم العلاج')),
-              TextField(controller: typeController, decoration: const InputDecoration(labelText: 'النوع')),
-              TextField(controller: durationController, decoration: const InputDecoration(labelText: 'المدة')),
-              TextField(controller: freqController, decoration: const InputDecoration(labelText: 'عدد الجرعات')),
-              TextField(controller: countController, decoration: const InputDecoration(labelText: 'عدد الحبات'), keyboardType: TextInputType.number),
+      builder: (_) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('تعديل العلاج'),
+            content: SingleChildScrollView(
+              child: StatefulBuilder(
+                builder: (context, setState) {
+                  return Column(
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        decoration: const InputDecoration(labelText: 'اسم الدواء'),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: durationController,
+                        keyboardType: TextInputType.number,
+                        decoration:
+                            const InputDecoration(labelText: 'مدة العلاج بالأيام'),
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        value: selectedCategory,
+                        decoration:
+                            const InputDecoration(labelText: 'تصنيف العلاج'),
+                        items: _categories.map((value) {
+                          return DropdownMenuItem<String>(
+                            value: value,
+                            child: Text(value),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setState(() => selectedCategory = value!);
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        value: selectedMedicineForm,
+                        decoration: const InputDecoration(labelText: 'نوع العلاج'),
+                        items: _medicineForms.map((value) {
+                          return DropdownMenuItem<String>(
+                            value: value,
+                            child: Text(value),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setState(() => selectedMedicineForm = value!);
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: timeController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                            labelText: 'ساعة بداية الجرعات (مثال: 8)'),
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<int>(
+                        value: dosageFrequency,
+                        decoration: const InputDecoration(
+                            labelText: 'عدد الجرعات يومياً'),
+                        items: [1, 2, 3, 4].map((value) {
+                          return DropdownMenuItem<int>(
+                            value: value,
+                            child: Text('$value'),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setState(() => dosageFrequency = value!);
+                        },
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('إلغاء')),
+              ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('حفظ التعديلات')),
             ],
           ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('تعديل')),
-        ],
-      ),
+        );
+      },
     );
 
     if (confirm == true) {
+      final int durationDays =
+          int.tryParse(durationController.text.trim()) ?? 7;
+      final int baseHour = int.tryParse(timeController.text.trim()) ?? 8;
+
+      // حساب مواعيد الجرعات الجديدة
+      final List<DateTime> doseTimes = [];
+      final double interval = 24 / dosageFrequency;
+
+      for (int day = 0; day < durationDays; day++) {
+        for (int i = 0; i < dosageFrequency; i++) {
+          int hour = (baseHour + (interval * i).round()) % 24;
+          final doseTime = DateTime.now()
+              .add(Duration(days: day))
+              .copyWith(
+                  hour: hour,
+                  minute: 0,
+                  second: 0,
+                  millisecond: 0,
+                  microsecond: 0);
+          doseTimes.add(doseTime);
+        }
+      }
+
       await _firestore.collection('Medications').doc(docId).update({
         'Medicine_name': nameController.text.trim(),
-        'Medication_type': typeController.text.trim(),
-        'Medication_duration': durationController.text.trim(),
-        'Dosage_frequency': freqController.text.trim(),
-        'Pill_count': int.tryParse(countController.text.trim()) ?? 0,
+        'Medication_category': selectedCategory,
+        'Medicine_form': selectedMedicineForm,
+        'Dosage_frequency': dosageFrequency,
+        'Medication_duration': durationDays,
+        'end_date': Timestamp.fromDate(
+            DateTime.now().add(Duration(days: durationDays))),
+        'Dose_times': doseTimes.map((e) => Timestamp.fromDate(e)).toList(),
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تم التعديل بنجاح')),
       );
     }
+  }
+
+  List<TimeOfDay> parseDoseTimes(List<dynamic> doseTimesList) {
+    List<TimeOfDay> doseTimes = [];
+    for (var dose in doseTimesList) {
+      if (dose is Timestamp) {
+        final doseDate = dose.toDate();
+        doseTimes.add(TimeOfDay(hour: doseDate.hour, minute: doseDate.minute));
+      }
+    }
+    return doseTimes;
+  }
+
+  String formatDoseTimes(List<dynamic> doseTimesList) {
+    final doseTimes = parseDoseTimes(doseTimesList);
+    final now = DateTime.now();
+
+    final filteredDoseTimes = doseTimes.where((time) {
+      final doseDate =
+          DateTime(now.year, now.month, now.day, time.hour, time.minute);
+      return doseDate.isAfter(now.subtract(const Duration(days: 1))) &&
+          doseDate.isBefore(now.add(const Duration(days: 1)));
+    }).toList();
+
+    List<String> formattedTimes = [];
+    List<String> uniqueTimes = [];
+
+    for (var time in filteredDoseTimes) {
+      String timeString = DateFormat('HH:mm', 'ar')
+          .format(DateTime(0, 0, 0, time.hour, time.minute));
+      if (!uniqueTimes.contains(timeString)) {
+        uniqueTimes.add(timeString);
+        formattedTimes.add(timeString);
+      }
+    }
+
+    if (formattedTimes.isNotEmpty) {
+      return "مواعيد الجرعات اليوم: ${formattedTimes.join('، ')}";
+    }
+
+    return "لم يتم تحديد مواعيد اليوم";
   }
 
   @override
@@ -89,15 +262,16 @@ class _MedicationPageState extends State<MedicationPage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
+        backgroundColor: const Color(0xFFF9F9F9),
         appBar: AppBar(
           backgroundColor: Colors.white,
-          title: const Text('علاجك', style: TextStyle(color: Colors.teal, fontWeight: FontWeight.bold)),
+          title: const Text('علاجك',
+              style: TextStyle(color: Colors.teal, fontWeight: FontWeight.bold)),
           centerTitle: true,
-          elevation: 0,
+          elevation: 1,
           leading: IconButton(
-            icon: const Icon(Icons.notifications_none, color: Colors.teal),
-            onPressed: () {},
-          ),
+              icon: const Icon(Icons.notifications_none, color: Colors.teal),
+              onPressed: () {}),
         ),
         body: user == null
             ? const Center(child: Text('يجب تسجيل الدخول'))
@@ -112,11 +286,14 @@ class _MedicationPageState extends State<MedicationPage> {
                             .where('UserID', isEqualTo: user.uid)
                             .snapshots(),
                         builder: (context, snapshot) {
-                          if (snapshot.connectionState == ConnectionState.waiting) {
-                            return const Center(child: CircularProgressIndicator());
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Center(
+                                child: CircularProgressIndicator());
                           }
 
-                          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                          if (!snapshot.hasData ||
+                              snapshot.data!.docs.isEmpty) {
                             return const Center(child: Text('لا توجد علاجات'));
                           }
 
@@ -128,13 +305,26 @@ class _MedicationPageState extends State<MedicationPage> {
                               final doc = docs[index];
                               final data = doc.data() as Map<String, dynamic>;
 
+                              final doseTimesText =
+                                  formatDoseTimes(data['Dose_times']);
+                              final startDate =
+                                  (data['start_date'] as Timestamp?)?.toDate();
+                              final endDate =
+                                  (data['end_date'] as Timestamp?)?.toDate();
+
                               return MedicationCard(
                                 name: data['Medicine_name'] ?? '',
-                                type: data['Medication_type'] ?? '',
-                                duration: data['Medication_duration'] ?? '',
-                                frequency: '${data['Dosage_frequency'] ?? ''}',
-                                count: data['Pill_count']?.toString() ?? '',
-                                imageUrl: data['ImageURL'],
+                                category: data['Medication_category'] ?? '',
+                                form: data['Medicine_form'] ?? '',
+                                duration: data['Medication_duration']
+                                    ?.toString() ??
+                                    '',
+                                frequency: data['Dosage_frequency']
+                                    ?.toString() ??
+                                    '',
+                                doseTimesText: doseTimesText,
+                                startDate: startDate,
+                                endDate: endDate,
                                 onEdit: () => editMedication(doc.id, data),
                                 onDelete: () => deleteMedication(doc.id),
                               );
@@ -150,13 +340,16 @@ class _MedicationPageState extends State<MedicationPage> {
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.teal,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
                         ),
                         onPressed: () {
                           Navigator.pushNamed(context, '/add_medicine');
                         },
                         icon: const Icon(Icons.add, color: Colors.white),
-                        label: const Text('إضافة علاج', style: TextStyle(fontSize: 20, color: Colors.white)),
+                        label: const Text('إضافة علاج',
+                            style:
+                                TextStyle(fontSize: 20, color: Colors.white)),
                       ),
                     ),
                   ],
@@ -169,80 +362,105 @@ class _MedicationPageState extends State<MedicationPage> {
 
 class MedicationCard extends StatelessWidget {
   final String name;
-  final String type;
+  final String category;
+  final String form;
   final String duration;
   final String frequency;
-  final String count;
-  final String? imageUrl;
+  final String doseTimesText;
+  final DateTime? startDate;
+  final DateTime? endDate;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const MedicationCard({
     super.key,
     required this.name,
-    required this.type,
+    required this.category,
+    required this.form,
     required this.duration,
     required this.frequency,
-    required this.count,
-    this.imageUrl,
+    required this.doseTimesText,
+    this.startDate,
+    this.endDate,
     required this.onEdit,
     required this.onDelete,
   });
 
+  double calculateProgress() {
+    if (startDate == null || endDate == null) return 0.0;
+    final totalDays = endDate!.difference(startDate!).inDays;
+    final passedDays = DateTime.now().difference(startDate!).inDays;
+    if (totalDays <= 0) return 1.0;
+    return (passedDays / totalDays).clamp(0.0, 1.0);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final startDateText = startDate != null
+        ? DateFormat("dd MMM yyyy", "ar").format(startDate!)
+        : '';
+    final endDateText = endDate != null
+        ? DateFormat("dd MMM yyyy", "ar").format(endDate!)
+        : '';
+
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.symmetric(vertical: 8),
       child: Padding(
-        padding: const EdgeInsets.all(12.0),
+        padding: const EdgeInsets.all(12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: imageUrl != null
-                      ? Image.network(imageUrl!, height: 60, width: 60, fit: BoxFit.cover)
-                      : Image.asset('assets/pill.png', height: 60, width: 60, fit: BoxFit.cover),
+                // تم استبدال الأيقونة بصورة الدواء
+                Image.asset(
+                  'assets/pill.png',
+                  height: 60,
+                  width: 60,
+                  fit: BoxFit.contain,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text('النوع: $type'),
-                      Text('المدة: $duration'),
-                      Text('عدد الجرعات: $frequency'),
-                      Text('عدد الحبات: $count'),
+                      Text(name,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 18)),
+                      Text('النوع: $form | التصنيف: $category',
+                          style: const TextStyle(color: Colors.grey)),
+                      Text('مدة العلاج: $duration يوم'),
+                      Text('عدد الجرعات اليومية: $frequency'),
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            LinearProgressIndicator(
+              value: calculateProgress(),
+              minHeight: 8,
+              backgroundColor: Colors.grey[300],
+              color: Colors.teal,
+            ),
+            const SizedBox(height: 6),
+            Text('من $startDateText إلى $endDateText',
+                style:
+                    const TextStyle(color: Colors.black54, fontSize: 13)),
+            const SizedBox(height: 6),
+            Text(doseTimesText, style: const TextStyle(color: Colors.teal)),
+            const SizedBox(height: 10),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                ElevatedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.check),
-                  label: const Text('تم أخذ العلاج'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal.shade100,
-                    foregroundColor: Colors.teal,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                ),
-                Row(
-                  children: [
-                    IconButton(onPressed: onEdit, icon: const Icon(Icons.edit, color: Colors.teal)),
-                    IconButton(onPressed: onDelete, icon: const Icon(Icons.delete, color: Colors.red)),
-                  ],
-                ),
+                IconButton(
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit, color: Colors.blue)),
+                IconButton(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete, color: Colors.red)),
               ],
             )
           ],

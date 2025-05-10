@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart';
 
 class AddExaminationPage extends StatefulWidget {
   const AddExaminationPage({super.key});
@@ -18,7 +17,7 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
   DateTime? selectedDate;
   TimeOfDay? selectedTime;
 
-  final List<String> examinationTypes = ['دوري', 'مستعجل','متابعة', 'جديد'];
+  final List<String> examinationTypes = ['دوري', 'مستعجل', 'متابعة', 'جديد'];
 
   Future<void> _submitExamination() async {
     if (doctorNameController.text.isEmpty ||
@@ -39,6 +38,7 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
       return;
     }
 
+    // هنا بنكوّن التاريخ والوقت في Timestamp حقيقي علشان نخزنهم صح في Firestore
     final DateTime checkupDateTime = DateTime(
       selectedDate!.year,
       selectedDate!.month,
@@ -47,17 +47,20 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
       selectedTime!.minute,
     );
 
+    final Timestamp checkupDateOnly = Timestamp.fromDate(
+        DateTime(selectedDate!.year, selectedDate!.month, selectedDate!.day));
+
+    final Timestamp checkupDateTimeFull = Timestamp.fromDate(checkupDateTime);
+
     try {
       await FirebaseFirestore.instance.collection('Patient_Records').add({
-        'UserID': user.uid,
-        'checkup_category': specialtyController.text,
-        'checkup_date':
-            DateFormat("yMMMMd").add_jm().format(selectedDate!.toLocal()),
-        'checkup_time':
-            DateFormat("yMMMMd").add_jm().format(checkupDateTime.toLocal()),
-        'doctor_name': doctorNameController.text,
-        'type_of_examination': selectedType,
-        'Created_at': FieldValue.serverTimestamp(),
+        'UserID': user.uid, // String
+        'checkup_category': specialtyController.text, // String
+        'checkup_date': checkupDateOnly, // Timestamp (اليوم فقط)
+        'checkup_time': checkupDateTimeFull, // Timestamp (اليوم + الوقت)
+        'doctor_name': doctorNameController.text, // String
+        'type_of_examination': selectedType, // String
+        'Created_at': FieldValue.serverTimestamp(), // Timestamp تلقائي
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -72,8 +75,8 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
     }
   }
 
-  Widget _buildTextField(String label, String hint,
-      TextEditingController controller) {
+  Widget _buildTextField(
+      String label, String hint, TextEditingController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -151,7 +154,7 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
             child: Text(
               selectedDate == null
                   ? "اختر التاريخ"
-                  : DateFormat.yMMMMd().format(selectedDate!),
+                  : "${selectedDate!.year}/${selectedDate!.month}/${selectedDate!.day}",
               textAlign: TextAlign.right,
             ),
           ),

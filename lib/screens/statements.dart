@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'add_statements.dart';
 
 class AppointmentsScreen extends StatefulWidget {
   const AppointmentsScreen({super.key});
@@ -14,13 +13,20 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // تحويل Timestamp إلى String
   String _formatDate(dynamic dateField) {
     if (dateField is Timestamp) {
       final date = dateField.toDate();
       return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
     }
     return 'تاريخ غير متوفر';
+  }
+
+  String _formatTime(dynamic timeField) {
+    if (timeField is Timestamp) {
+      final time = timeField.toDate();
+      return '${time.hour}:${time.minute.toString().padLeft(2, '0')}';
+    }
+    return 'الوقت غير متوفر';
   }
 
   Future<void> deleteAppointment(String docId) async {
@@ -30,8 +36,14 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         title: const Text('تأكيد الحذف'),
         content: const Text('هل تريد حذف هذا الكشف؟'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('حذف')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('حذف'),
+          ),
         ],
       ),
     );
@@ -39,7 +51,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     if (confirm == true) {
       await _firestore.collection('Patient_Records').doc(docId).delete();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الحذف بنجاح')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('تم الحذف بنجاح')));
       }
     }
   }
@@ -51,12 +64,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         TextEditingController(text: data['checkup_category']);
     final TextEditingController typeController =
         TextEditingController(text: data['type_of_examination']);
-    
-    // تحويل Timestamp إلى String
-    final TextEditingController dateController =
-        TextEditingController(text: _formatDate(data['checkup_date']));  // تحويل التاريخ
-    final TextEditingController timeController =
-        TextEditingController(text: data['checkup_time']);
+
+    DateTime selectedDate = (data['checkup_date'] as Timestamp).toDate();
+    TimeOfDay selectedTime =
+        TimeOfDay.fromDateTime((data['checkup_time'] as Timestamp).toDate());
 
     showDialog(
       context: context,
@@ -65,28 +76,91 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         content: SingleChildScrollView(
           child: Column(
             children: [
-              TextField(controller: doctorNameController, decoration: const InputDecoration(labelText: 'اسم الدكتور')),
-              TextField(controller: categoryController, decoration: const InputDecoration(labelText: 'الفئة')),
-              TextField(controller: typeController, decoration: const InputDecoration(labelText: 'النوع')),
-              TextField(controller: dateController, decoration: const InputDecoration(labelText: 'التاريخ')),
-              TextField(controller: timeController, decoration: const InputDecoration(labelText: 'الوقت')),
+              TextField(
+                controller: doctorNameController,
+                decoration: const InputDecoration(labelText: 'اسم الدكتور'),
+              ),
+              TextField(
+                controller: categoryController,
+                decoration: const InputDecoration(labelText: 'الفئة'),
+              ),
+              TextField(
+                controller: typeController,
+                decoration: const InputDecoration(labelText: 'النوع'),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                title: Text(
+                    'التاريخ: ${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}'),
+                trailing: const Icon(Icons.calendar_today),
+                onTap: () async {
+                  DateTime? picked = await showDatePicker(
+                    context: context,
+                    initialDate: selectedDate,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      selectedDate = picked;
+                    });
+                  }
+                },
+              ),
+              ListTile(
+                title: Text('الوقت: ${selectedTime.format(context)}'),
+                trailing: const Icon(Icons.access_time),
+                onTap: () async {
+                  TimeOfDay? picked = await showTimePicker(
+                    context: context,
+                    initialTime: selectedTime,
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      selectedTime = picked;
+                    });
+                  }
+                },
+              ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إلغاء'),
+          ),
           ElevatedButton(
             onPressed: () async {
-              await _firestore.collection('Patient_Records').doc(docId).update({
-                'doctor_name': doctorNameController.text,
-                'checkup_category': categoryController.text,
-                'type_of_examination': typeController.text,
-                'checkup_date': dateController.text,  // تخزين التاريخ كـ String
-                'checkup_time': timeController.text,
-              });
-              if (mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم التعديل')));
+              try {
+                final fullDateTime = DateTime(
+                  selectedDate.year,
+                  selectedDate.month,
+                  selectedDate.day,
+                  selectedTime.hour,
+                  selectedTime.minute,
+                );
+
+                await _firestore.collection('Patient_Records').doc(docId).update({
+                  'doctor_name': doctorNameController.text,
+                  'checkup_category': categoryController.text,
+                  'type_of_examination': typeController.text,
+                  'checkup_date': Timestamp.fromDate(selectedDate),
+                  'checkup_time': Timestamp.fromDate(fullDateTime),
+                });
+
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('تم التعديل')),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('حصل خطأ أثناء الحفظ')),
+                  );
+                }
               }
             },
             child: const Text('حفظ'),
@@ -104,7 +178,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('الأطباء', style: TextStyle(color: Colors.teal, fontWeight: FontWeight.bold)),
+          title: const Text(
+            'الأطباء',
+            style: TextStyle(color: Colors.teal, fontWeight: FontWeight.bold),
+          ),
           centerTitle: true,
           backgroundColor: Colors.white,
           elevation: 0,
@@ -121,7 +198,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                           .where('UserID', isEqualTo: user.uid)
                           .snapshots(),
                       builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
                           return const Center(child: CircularProgressIndicator());
                         }
 
@@ -142,8 +220,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                               doctorName: data['doctor_name'] ?? '',
                               category: data['checkup_category'] ?? '',
                               type: data['type_of_examination'] ?? '',
-                              date: _formatDate(data['checkup_date']),  // تحويل التاريخ هنا
-                              time: _formatDate(data['checkup_time']) ?? '',
+                              date: _formatDate(data['checkup_date']),
+                              time: _formatTime(data['checkup_time']),
                               onDelete: () => deleteAppointment(doc.id),
                               onEdit: () => showEditDialog(doc.id, data),
                             );
@@ -153,7 +231,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     child: SizedBox(
                       width: double.infinity,
                       height: 50,
@@ -162,10 +241,15 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                           Navigator.pushNamed(context, '/add_statements');
                         },
                         icon: const Icon(Icons.add, color: Colors.white),
-                        label: const Text('إضافة كشف', style: TextStyle(fontSize: 16, color: Colors.white)),
+                        label: const Text(
+                          'إضافة كشف',
+                          style: TextStyle(fontSize: 16, color: Colors.white),
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.teal,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
                       ),
                     ),
@@ -217,8 +301,14 @@ class DoctorCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('د. $doctorName', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text('$category | $type', style: const TextStyle(color: Colors.grey)),
+                      Text(
+                        'د. $doctorName',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        '$category | $type',
+                        style: const TextStyle(color: Colors.grey),
+                      ),
                     ],
                   ),
                 ),
