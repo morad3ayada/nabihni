@@ -16,6 +16,7 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
   String? selectedType = 'دوري';
   DateTime? selectedDate;
   TimeOfDay? selectedTime;
+  bool _isLoading = false;
 
   final List<String> examinationTypes = ['دوري', 'مستعجل', 'متابعة', 'جديد'];
 
@@ -30,37 +31,38 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
       return;
     }
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("يرجى تسجيل الدخول أولاً")),
-      );
-      return;
-    }
-
-    // هنا بنكوّن التاريخ والوقت في Timestamp حقيقي علشان نخزنهم صح في Firestore
-    final DateTime checkupDateTime = DateTime(
-      selectedDate!.year,
-      selectedDate!.month,
-      selectedDate!.day,
-      selectedTime!.hour,
-      selectedTime!.minute,
-    );
-
-    final Timestamp checkupDateOnly = Timestamp.fromDate(
-        DateTime(selectedDate!.year, selectedDate!.month, selectedDate!.day));
-
-    final Timestamp checkupDateTimeFull = Timestamp.fromDate(checkupDateTime);
+    setState(() => _isLoading = true);
 
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("يرجى تسجيل الدخول أولاً")),
+        );
+        return;
+      }
+
+      final DateTime checkupDateTime = DateTime(
+        selectedDate!.year,
+        selectedDate!.month,
+        selectedDate!.day,
+        selectedTime!.hour,
+        selectedTime!.minute,
+      );
+
+      final Timestamp checkupDateOnly = Timestamp.fromDate(
+          DateTime(selectedDate!.year, selectedDate!.month, selectedDate!.day));
+
+      final Timestamp checkupDateTimeFull = Timestamp.fromDate(checkupDateTime);
+
       await FirebaseFirestore.instance.collection('Patient_Records').add({
-        'UserID': user.uid, // String
-        'checkup_category': specialtyController.text, // String
-        'checkup_date': checkupDateOnly, // Timestamp (اليوم فقط)
-        'checkup_time': checkupDateTimeFull, // Timestamp (اليوم + الوقت)
-        'doctor_name': doctorNameController.text, // String
-        'type_of_examination': selectedType, // String
-        'Created_at': FieldValue.serverTimestamp(), // Timestamp تلقائي
+        'UserID': user.uid,
+        'checkup_category': specialtyController.text,
+        'checkup_date': checkupDateOnly,
+        'checkup_time': checkupDateTimeFull,
+        'doctor_name': doctorNameController.text,
+        'type_of_examination': selectedType,
+        'Created_at': FieldValue.serverTimestamp(),
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -72,27 +74,42 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("حدث خطأ: $e")),
       );
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
-  Widget _buildTextField(
-      String label, String hint, TextEditingController controller) {
+  Widget _buildCard({required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildTextField(String label, String hint, TextEditingController controller) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
         TextField(
           controller: controller,
+          textAlign: TextAlign.right,
           decoration: InputDecoration(
             hintText: hint,
+            hintTextDirection: TextDirection.rtl,
             filled: true,
-            fillColor: Colors.white,
-            border:
-                OutlineInputBorder(borderRadius: BorderRadius.circular(8.0)),
+            fillColor: Colors.grey[100],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           ),
-          textAlign: TextAlign.right,
         ),
       ],
     );
@@ -101,23 +118,30 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
   Widget _buildDropdownField(String label, List<String> items, String? value,
       Function(String?) onChanged) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        DropdownButtonFormField<String>(
-          value: value,
-          onChanged: onChanged,
-          items: items
-              .map((item) =>
-                  DropdownMenuItem(value: item, child: Text(item)))
-              .toList(),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: Colors.white,
-            border:
-                OutlineInputBorder(borderRadius: BorderRadius.circular(8.0)),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButton<String>(
+            value: value,
+            underline: const SizedBox(),
+            isExpanded: true,
+            icon: const Icon(Icons.arrow_drop_down),
+            alignment: Alignment.centerRight,
+            items: items.map((value) {
+              return DropdownMenuItem<String>(
+                value: value,
+                alignment: Alignment.centerRight,
+                child: Text(value),
+              );
+            }).toList(),
+            onChanged: onChanged,
           ),
         ),
       ],
@@ -126,11 +150,10 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
 
   Widget _buildDatePicker(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("تاريخ الفحص",
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
+        const Text("تاريخ الفحص", style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
         GestureDetector(
           onTap: () async {
             final picked = await showDatePicker(
@@ -147,9 +170,8 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8.0),
-              border: Border.all(color: Colors.grey.shade300),
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
               selectedDate == null
@@ -165,11 +187,10 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
 
   Widget _buildTimePicker(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("الوقت",
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
+        const Text("الوقت", style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
         GestureDetector(
           onTap: () async {
             final picked =
@@ -182,9 +203,8 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8.0),
-              border: Border.all(color: Colors.grey.shade300),
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
               selectedTime == null
@@ -200,51 +220,59 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFDF3F9),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.teal),
-          onPressed: () => Navigator.pop(context),
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF6F6F6),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 1,
+          iconTheme: const IconThemeData(color: Colors.teal),
+          centerTitle: true,
+          title: const Text(
+            'إضافة كشف',
+            style: TextStyle(
+              color: Colors.teal,
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+            ),
+          ),
         ),
-        title: const Text('إضافة كشف',
-            style: TextStyle(color: Colors.teal, fontWeight: FontWeight.bold)),
-        centerTitle: true,
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
+        body: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 24),
-              _buildTextField("اسم الطبيب", "اكتب هنا...", doctorNameController),
-              const SizedBox(height: 12),
-              _buildTextField("التخصص", "مثلاً: أطفال", specialtyController),
-              const SizedBox(height: 12),
-              _buildDropdownField("طبيعة الفحص", examinationTypes, selectedType,
-                  (value) {
-                setState(() => selectedType = value);
-              }),
-              const SizedBox(height: 12),
-              _buildDatePicker(context),
-              const SizedBox(height: 12),
-              _buildTimePicker(context),
-              const SizedBox(height: 24),
+              Expanded(
+                child: ListView(
+                  children: [
+                    _buildCard(child: _buildTextField("اسم الطبيب", "اكتب هنا...", doctorNameController)),
+                    const SizedBox(height: 12),
+                    _buildCard(child: _buildTextField("التخصص", "مثلاً: أطفال", specialtyController)),
+                    const SizedBox(height: 12),
+                    _buildCard(child: _buildDropdownField("طبيعة الفحص", examinationTypes, selectedType, (value) {
+                      setState(() => selectedType = value);
+                    })),
+                    const SizedBox(height: 12),
+                    _buildCard(child: _buildDatePicker(context)),
+                    const SizedBox(height: 12),
+                    _buildCard(child: _buildTimePicker(context)),
+                  ],
+                ),
+              ),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.teal,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  onPressed: _submitExamination,
-                  child: const Text("إضافة",
-                      style: TextStyle(fontSize: 16, color: Colors.white)),
+                  onPressed: _isLoading ? null : _submitExamination,
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('إضافة', style: TextStyle(fontSize: 16, color: Colors.white)),
                 ),
               ),
             ],

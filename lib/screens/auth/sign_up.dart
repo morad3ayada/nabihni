@@ -16,7 +16,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final TextEditingController _confirmPasswordController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _ageController = TextEditingController();
-  final TextEditingController _patientCompanionEmailController = TextEditingController();
 
   bool _isPasswordObscured = true;
   bool _isConfirmPasswordObscured = true;
@@ -68,10 +67,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 const SizedBox(height: 16),
                 _buildLabel("العمر"),
                 _buildTextField(_ageController, 'اكتب عمرك', keyboardType: TextInputType.number),
-
-                const SizedBox(height: 16),
-                _buildLabel("البريد الإلكتروني للمرافق"),
-                _buildTextField(_patientCompanionEmailController, 'اكتب إيميل المرافق'),
 
                 const SizedBox(height: 20),
                 _isLoading
@@ -180,63 +175,61 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 
-  Future<void> _signUp() async {
-    final fullName = _fullNameController.text.trim();
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
-    final confirmPassword = _confirmPasswordController.text.trim();
-    final username = _usernameController.text.trim();
-    final age = _ageController.text.trim();
-    final patientCompanionEmail = _patientCompanionEmailController.text.trim();
+Future<void> _signUp() async {
+  final fullName = _fullNameController.text.trim();
+  final email = _emailController.text.trim();
+  final password = _passwordController.text.trim();
+  final confirmPassword = _confirmPasswordController.text.trim();
+  final username = _usernameController.text.trim();
+  final age = _ageController.text.trim();
 
-    if (fullName.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty || username.isEmpty || age.isEmpty || patientCompanionEmail.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❗ كل الحقول مطلوبة')),
-      );
-      return;
-    }
-
-    if (password != confirmPassword) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❗ كلمتا السر غير متطابقتين')),
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-
-      final userId = credential.user!.uid;
-
-      // ✅ هنا عدلنا اسم الـ Collection إلى users
-      await FirebaseFirestore.instance.collection('users').doc(userId).set({
-        'fullName': fullName,
-        'email': email,
-        'username': username,
-        'age': int.parse(age),
-        'patient_companion_Email': patientCompanionEmail,
-        'createdAt': Timestamp.now(),
-        'userID': userId,
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ تم إنشاء الحساب بنجاح')),
-      );
-
-      Navigator.pushReplacementNamed(context, '/home');
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❗ خطأ أثناء التسجيل: ${e.toString()}')),
-      );
-    } finally {
-      setState(() => _isLoading = false);
-    }
+  if (fullName.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty || username.isEmpty || age.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('❗ كل الحقول مطلوبة')),
+    );
+    return;
   }
+
+  if (password != confirmPassword) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('❗ كلمتا السر غير متطابقتين')),
+    );
+    return;
+  }
+
+  setState(() => _isLoading = true);
+
+  try {
+    final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+
+    final userId = credential.user!.uid;
+
+    await FirebaseFirestore.instance.collection('users').doc(userId).set({
+      'userID': userId,
+      'fullName': fullName,
+      'email': email,
+      'username': username,
+      'age': int.parse(age),
+      'createdAt': Timestamp.now(),
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('✅ تم إنشاء الحساب بنجاح')),
+    );
+
+    Navigator.pushReplacementNamed(context, '/home');
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('❗ خطأ أثناء التسجيل: ${e.toString()}')),
+    );
+  } finally {
+    setState(() => _isLoading = false);
+  }
+}
+
 
   static InputDecoration _inputDecoration(String hint) {
     return InputDecoration(

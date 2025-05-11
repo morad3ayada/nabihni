@@ -22,7 +22,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 // تهيئة الإشعارات
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-    FlutterLocalNotificationsPlugin();
+FlutterLocalNotificationsPlugin();
 
 Future<void> initializeNotifications() async {
   // إعدادات القناة للإشعارات في أندرويد
@@ -39,10 +39,10 @@ Future<void> initializeNotifications() async {
       ?.createNotificationChannel(channel);
 
   const AndroidInitializationSettings initializationSettingsAndroid =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
+  AndroidInitializationSettings('@mipmap/ic_launcher');
 
   const InitializationSettings initializationSettings =
-      InitializationSettings(android: initializationSettingsAndroid);
+  InitializationSettings(android: initializationSettingsAndroid);
 
   // تهيئة الإشعارات
   await flutterLocalNotificationsPlugin.initialize(
@@ -62,14 +62,51 @@ void main() async {
   await initializeDateFormatting('ar', null);
   tz.initializeTimeZones();
 
-  // إعداد Firebase Messaging لتعامل مع الرسائل في الخلفية
+  //////////////////////////////////////////////////
+  NotificationSettings settings = await FirebaseMessaging.instance.requestPermission(
+    alert: true,
+    announcement: false,
+    badge: true,
+    carPlay: false,
+    criticalAlert: false,
+    provisional: false,
+    sound: true,
+  );
+
+  print('🔔 إذن الإشعارات: ${settings.authorizationStatus}');
+  //////////////////////////////////////////////////
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   // تهيئة الإشعارات
   await initializeNotifications();
 
+  //////////////////////////////////////////////////
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    RemoteNotification? notification = message.notification;
+    AndroidNotification? android = message.notification?.android;
+
+    if (notification != null && android != null) {
+      flutterLocalNotificationsPlugin.show(
+        notification.hashCode,
+        notification.title,
+        notification.body,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'default_channel_id', // نفس معرف القناة
+            'Default Notifications',
+            channelDescription: 'القناة الافتراضية للإشعارات',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+        ),
+      );
+    }
+  });
+  //////////////////////////////////////////////////
+
   runApp(const MyApp());
 }
+
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

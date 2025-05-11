@@ -16,13 +16,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
-
+  
   final List<Widget> _pages = [
     const HomeContent(),
     const MedicationPage(),
@@ -30,6 +24,14 @@ class _HomePageState extends State<HomePage> {
     const AppointmentsScreen(),
     const ProfilePage(),
   ];
+
+  void _onItemTapped(int index) {
+    if (index >= 0 && index < _pages.length) {
+      setState(() {
+        _selectedIndex = index;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,11 +46,11 @@ class _HomePageState extends State<HomePage> {
           BottomNavigationBarItem(icon: Icon(Icons.home), label: "الرئيسية"),
           BottomNavigationBarItem(icon: Icon(Icons.medical_services), label: "علاجاتي"),
           BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: "مواعيدي"),
-          BottomNavigationBarItem(icon: Icon(Icons.assignment_ind), label: "كشفواتك"),
+          BottomNavigationBarItem(icon: Icon(Icons.assignment), label: "كشفواتك"),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: "الملف الشخصي"),
         ],
       ),
-      body: _pages[_selectedIndex],
+      body: SafeArea(child: _pages[_selectedIndex]),
     );
   }
 }
@@ -63,200 +65,323 @@ class HomeContent extends StatefulWidget {
 class _HomeContentState extends State<HomeContent> {
   String userName = '';
   String userId = FirebaseAuth.instance.currentUser?.uid ?? '';
-  List<DocumentSnapshot> todaysMeds = [];
+  List<Map<String, dynamic>> allDoses = [];
   List<DocumentSnapshot> todaysAppointments = [];
-  Map<String, DateTime?> nextDoseTimeMap = {};
   Map<String, bool> medicationStatus = {};
   Map<String, bool> checkupStatus = {};
+  bool _showAllMeds = false;
+  bool _showAllAppointments = false;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    fetchUserData();
-    fetchTodayMedications();
-    fetchTodayAppointments();
+    _loadData();
+    _setupRealtimeListeners();
   }
 
-  void fetchUserData() async {
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
-    if (mounted) {
-      setState(() {
-        userName = userDoc.data()?['fullName'] ?? '';
-      });
-    }
+  void _setupRealtimeListeners() {
+    FirebaseFirestore.instance
+        .collection('Medicine_Adherence')
+        .where('user_ID', isEqualTo: userId)
+        .snapshots()
+        .listen((snapshot) {
+      if (mounted) {
+        _updateMedicationStatus(snapshot);
+      }
+    });
+
+    FirebaseFirestore.instance
+        .collection('Checkup_Adherence')
+        .where('user_ID', isEqualTo: userId)
+        .snapshots()
+        .listen((snapshot) {
+      if (mounted) {
+        _updateCheckupStatus(snapshot);
+      }
+    });
   }
 
-  void fetchTodayMedications() async {
+  void _updateMedicationStatus(QuerySnapshot snapshot) {
     final today = DateTime.now();
-    final meds = await FirebaseFirestore.instance
-        .collection('Medications')
-        .where('UserID', isEqualTo: userId)
-        .get();
+    setState(() {
+      for (var doc in snapshot.docs) {
+        final doseTime = doc['dose_time']?.toDate();
+        if (doseTime != null && isSameDay(doseTime, today)) {
+          medicationStatus['${doc['medication_id']}_${doseTime.toIso8601String()}'] = doc['status'] == true;
+        }
+      }
+      _sortItems();
+    });
+  }
 
-    final filtered = meds.docs.where((doc) {
-      final data = doc.data();
-      final start = (data['start_date'] as Timestamp?)?.toDate();
-      final end = (data['end_date'] as Timestamp?)?.toDate();
-      return start != null && end != null &&
-          today.isAfter(start.subtract(const Duration(days: 1))) &&
-          today.isBefore(end.add(const Duration(days: 1)));
-    }).toList();
+  void _updateCheckupStatus(QuerySnapshot snapshot) {
+    setState(() {
+      for (var doc in snapshot.docs) {
+        checkupStatus[doc['checkup_id']] = doc['status'] == true;
+      }
+      _sortItems();
+    });
+  }
 
-    Map<String, DateTime?> nextDoses = {};
-
-    for (var doc in filtered) {
-      final data = doc.data();
-      if (!data.containsKey('Dose_times')) continue;
-
-      final rawTimes = data['Dose_times'];
-      if (rawTimes is! List) continue;
-
-      List<DateTime> parsedTimes = rawTimes
-          .map<DateTime?>((t) => DateTime.tryParse(t.toString()))
-          .whereType<DateTime>()
-          .where((t) =>
-              t.year == today.year &&
-              t.month == today.month &&
-              t.day == today.day)
-          .toList()
-        ..sort();
-
-      if (parsedTimes.isNotEmpty) {
-        final upcoming = parsedTimes.firstWhere(
-          (t) => t.isAfter(DateTime.now()),
-          orElse: () => parsedTimes.last,
-        );
-        nextDoses[doc.id] = upcoming;
-      } else {
-        nextDoses[doc.id] = null;
+  Future<void> _loadData() async {
+    try {
+      await Future.wait([
+        fetchUserData(),
+        fetchTodayMedications(),
+        fetchTodayAppointments(),
+      ]);
+    } catch (e) {
+      debugPrint('Error loading data: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
+  }
 
-    if (mounted) {
-      setState(() {
-        todaysMeds = filtered;
-        nextDoseTimeMap = nextDoses;
-      });
+  Future<void> fetchUserData() async {
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+      if (mounted && userDoc.exists) {
+        setState(() {
+          userName = userDoc.data()?['fullName'] ?? '';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching user data: $e');
     }
   }
 
-  void fetchTodayAppointments() async {
-    final today = DateTime.now();
-    final appointments = await FirebaseFirestore.instance
-        .collection('Patient_Records')
-        .where('UserID', isEqualTo: userId)
-        .get();
+  Future<void> fetchTodayMedications() async {
+    try {
+      final today = DateTime.now();
+      final meds = await FirebaseFirestore.instance
+          .collection('Medications')
+          .where('UserID', isEqualTo: userId)
+          .get();
 
-    final filtered = appointments.docs.where((doc) {
-      final dateField = doc['checkup_date'];
-      if (dateField is! Timestamp) return false;
-      final date = dateField.toDate();
-      return date.year == today.year &&
-          date.month == today.month &&
-          date.day == today.day;
-    }).toList();
+      List<Map<String, dynamic>> doses = [];
+      for (var med in meds.docs) {
+        final data = med.data();
+        final start = (data['start_date'] as Timestamp?)?.toDate();
+        final end = (data['end_date'] as Timestamp?)?.toDate();
+        
+        if (start != null && end != null && 
+            today.isAfter(start.subtract(const Duration(days: 1))) &&
+            today.isBefore(end.add(const Duration(days: 1)))) {
+          
+          final doseTimes = data['Dose_times'] as List<dynamic>? ?? [];
+          for (var t in doseTimes) {
+            final doseTime = t is Timestamp ? t.toDate() : DateTime.tryParse(t.toString());
+            if (doseTime != null && isSameDay(doseTime, today)) {
+              doses.add({
+                'medDoc': med,
+                'doseTime': doseTime,
+                'title': data['Medicine_name']?.toString() ?? '',
+                'type': data['Medicine_form']?.toString() ?? '',
+                'category': data['Medication_category']?.toString() ?? '',
+              });
+            }
+          }
+        }
+      }
 
-    if (mounted) {
-      setState(() {
-        todaysAppointments = filtered;
-      });
+      final adherenceSnapshot = await FirebaseFirestore.instance
+          .collection('Medicine_Adherence')
+          .where('user_ID', isEqualTo: userId)
+          .where('time_taken', isGreaterThan: Timestamp.fromDate(DateTime(today.year, today.month, today.day)))
+          .get();
+
+      for (var doc in adherenceSnapshot.docs) {
+        final doseTime = doc['dose_time']?.toDate();
+        if (doseTime != null) {
+          medicationStatus['${doc['medication_id']}_${doseTime.toIso8601String()}'] = doc['status'] == true;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          allDoses = doses;
+          _sortItems();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching medications: $e');
     }
   }
 
-  void markMedicationTaken(DocumentSnapshot medDoc, String doseTimeStr) async {
-    final key = medDoc.id + doseTimeStr;
-    if (medicationStatus[key] == true) return;
+  Future<void> fetchTodayAppointments() async {
+    try {
+      final today = DateTime.now();
+      final startOfDay = DateTime(today.year, today.month, today.day);
+      final endOfDay = DateTime(today.year, today.month, today.day, 23, 59, 59);
 
-    final doseTime = DateTime.tryParse(doseTimeStr);
-    if (doseTime == null) return;
+      final appointments = await FirebaseFirestore.instance
+          .collection('Patient_Records')
+          .where('UserID', isEqualTo: userId)
+          .where('checkup_date', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+          .where('checkup_date', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+          .get();
 
-    await FirebaseFirestore.instance.collection('Medicine_Adherence').add({
-      'medication_id': medDoc.id,
-      'user_ID': userId,
-      'time_taken': Timestamp.now(),
-      'status': true,
-      'dose_time': Timestamp.fromDate(doseTime),
-      'reminder_sent': false,
-    });
+      final checkupAdherence = await FirebaseFirestore.instance
+          .collection('Checkup_Adherence')
+          .where('user_ID', isEqualTo: userId)
+          .where('time_taken', isGreaterThan: Timestamp.fromDate(startOfDay))
+          .get();
 
-    medicationStatus[key] = true;
+      for (var doc in checkupAdherence.docs) {
+        checkupStatus[doc['checkup_id']] = doc['status'] == true;
+      }
 
-    List<DateTime> upcoming = (medDoc['Dose_times'] as List)
-        .map<DateTime?>((t) => DateTime.tryParse(t.toString()))
-        .whereType<DateTime>()
-        .where((t) =>
-            t.year == DateTime.now().year &&
-            t.month == DateTime.now().month &&
-            t.day == DateTime.now().day &&
-            t.isAfter(DateTime.now()))
-        .toList()
-      ..sort();
-
-    setState(() {
-      nextDoseTimeMap[medDoc.id] = upcoming.isNotEmpty ? upcoming.first : null;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم تسجيل الدواء')),
-    );
+      if (mounted) {
+        setState(() {
+          todaysAppointments = appointments.docs;
+          _sortItems();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching appointments: $e');
+    }
   }
 
-  void markCheckupAttended(DocumentSnapshot apptDoc) async {
-    if (checkupStatus[apptDoc.id] == true) return;
-
-    await FirebaseFirestore.instance.collection('Checkup_Adherence').add({
-      'checkup_id': apptDoc.id,
-      'user_ID': userId,
-      'time_taken': Timestamp.now(),
-      'status': true,
-      'reminder_sent': false,
-    });
-
+  void _sortItems() {
     setState(() {
-      checkupStatus[apptDoc.id] = true;
-    });
+      allDoses.sort((a, b) {
+        final aKey = '${a['medDoc'].id}_${a['doseTime'].toIso8601String()}';
+        final bKey = '${b['medDoc'].id}_${b['doseTime'].toIso8601String()}';
+        final aTaken = medicationStatus[aKey] ?? false;
+        final bTaken = medicationStatus[bKey] ?? false;
+        
+        if (aTaken && !bTaken) return 1;
+        if (!aTaken && bTaken) return -1;
+        return a['doseTime'].compareTo(b['doseTime']);
+      });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم تسجيل الحضور للكشف')),
-    );
+      todaysAppointments.sort((a, b) {
+        final aData = a.data() as Map<String, dynamic>;
+        final bData = b.data() as Map<String, dynamic>;
+        final aTime = (aData['checkup_time'] as Timestamp?)?.toDate() ?? 
+                     (aData['checkup_date'] as Timestamp).toDate();
+        final bTime = (bData['checkup_time'] as Timestamp?)?.toDate() ?? 
+                     (bData['checkup_date'] as Timestamp).toDate();
+        
+        final aAttended = checkupStatus[a.id] ?? false;
+        final bAttended = checkupStatus[b.id] ?? false;
+        
+        if (aAttended && !bAttended) return 1;
+        if (!aAttended && bAttended) return -1;
+        return aTime.compareTo(bTime);
+      });
+    });
   }
 
-  Widget _styledCheckbox(bool value, Function(bool?) onChanged) {
+  Future<void> markMedicationTaken(Map<String, dynamic> dose) async {
+    try {
+      final key = '${dose['medDoc'].id}_${dose['doseTime'].toIso8601String()}';
+      if (medicationStatus[key] == true) return;
+
+      await FirebaseFirestore.instance.collection('Medicine_Adherence').add({
+        'medication_id': dose['medDoc'].id,
+        'user_ID': userId,
+        'time_taken': Timestamp.now(),
+        'status': true,
+        'dose_time': Timestamp.fromDate(dose['doseTime']),
+        'reminder_sent': false,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم تسجيل الدواء')),
+        );
+        setState(() {
+          medicationStatus[key] = true;
+          _sortItems();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('حدث خطأ: ${e.toString()}')),
+        );
+      }
+      debugPrint('Error marking medication taken: $e');
+    }
+  }
+
+  Future<void> markCheckupAttended(DocumentSnapshot apptDoc) async {
+    try {
+      if (checkupStatus[apptDoc.id] == true) return;
+
+      await FirebaseFirestore.instance.collection('Checkup_Adherence').add({
+        'checkup_id': apptDoc.id,
+        'user_ID': userId,
+        'time_taken': Timestamp.now(),
+        'status': true,
+        'reminder_sent': false,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم تسجيل الحضور للكشف')),
+        );
+        setState(() {
+          checkupStatus[apptDoc.id] = true;
+          _sortItems();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('حدث خطأ: ${e.toString()}')),
+        );
+      }
+      debugPrint('Error marking checkup attended: $e');
+    }
+  }
+
+  Widget _styledCheckbox(bool? value, Function(bool?) onChanged) {
     return GestureDetector(
-      onTap: () => onChanged(!value),
+      onTap: () => onChanged(!(value ?? false)),
       child: Container(
         decoration: BoxDecoration(
-          color: value ? Colors.green : Colors.white,
+          color: (value ?? false) ? Colors.green : Colors.white,
           border: Border.all(color: Colors.teal),
           borderRadius: BorderRadius.circular(8),
         ),
         width: 24,
         height: 24,
-        child: value
+        child: (value ?? false)
             ? const Icon(Icons.check, size: 20, color: Colors.white)
             : null,
       ),
     );
   }
 
-  Widget _medicineCard(String title, String subtitle, DocumentSnapshot medDoc, DateTime doseTime) {
-    final idWithTime = medDoc.id + doseTime.toIso8601String();
-    final isTaken = medicationStatus[idWithTime] ?? false;
+  Widget _medicineCard(Map<String, dynamic> dose) {
+    final key = '${dose['medDoc'].id}_${dose['doseTime'].toIso8601String()}';
+    final isTaken = medicationStatus[key] ?? false;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.teal.shade50,
+        color: isTaken ? Colors.green.shade50 : Colors.teal.shade50,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isTaken ? Colors.green : Colors.teal,
+          width: 1,
+        ),
       ),
       child: Row(
         children: [
-          Image.asset("assets/pill.png", width: 40),
+          Image.asset("assets/pill.png", width: 50),
           const SizedBox(width: 10),
           _styledCheckbox(isTaken, (_) {
             if (!isTaken) {
-              markMedicationTaken(medDoc, doseTime.toIso8601String());
+              markMedicationTaken(dose);
             }
           }),
           const SizedBox(width: 10),
@@ -264,9 +389,12 @@ class _HomeContentState extends State<HomeContent> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.bold), textDirection: TextDirection.rtl),
-                Text(subtitle, textDirection: TextDirection.rtl),
-                Text("الميعاد: ${doseTime.hour}:${doseTime.minute.toString().padLeft(2, '0')}", textDirection: TextDirection.rtl),
+                Text(dose['title'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                if (dose['type'].isNotEmpty) Text("النوع: ${dose['type']}"),
+                if (dose['category'].isNotEmpty) Text("التصنيف: ${dose['category']}"),
+                Text("الميعاد: ${formatTime(dose['doseTime'])}"),
+                if (isTaken) 
+                  Text("تم التسجيل", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -275,45 +403,51 @@ class _HomeContentState extends State<HomeContent> {
     );
   }
 
-  Widget _checkupCard(String doctor, String specialty, String type, DateTime date, DateTime time, DocumentSnapshot apptDoc) {
+  Widget _checkupCard(DocumentSnapshot apptDoc) {
     final isAttended = checkupStatus[apptDoc.id] ?? false;
+    final data = apptDoc.data() as Map<String, dynamic>;
+    final time = (data['checkup_time'] as Timestamp?)?.toDate() ?? 
+                (data['checkup_date'] as Timestamp).toDate();
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.teal.shade100.withOpacity(0.3),
+        color: isAttended ? Colors.green.shade50 : Colors.teal.shade100.withOpacity(0.3),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isAttended ? Colors.green : Colors.teal,
+          width: 1,
+        ),
       ),
       child: Row(
         children: [
-          const Icon(Icons.local_hospital, size: 40, color: Colors.teal),
+          Image.asset( // الأيقونة المخصصة للكشف
+            'assets/medical-checkup.png',
+            width: 60,
+            height: 60,
+            fit: BoxFit.contain,
+          ),
           const SizedBox(width: 10),
-          isAttended
-              ? ElevatedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.check),
-                  label: const Text('تم الذهاب للكشف'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal.shade100,
-                    foregroundColor: Colors.teal,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                )
-              : _styledCheckbox(false, (_) {
-                  markCheckupAttended(apptDoc);
-                }),
+          _styledCheckbox(isAttended, (_) {
+            if (!isAttended) {
+              markCheckupAttended(apptDoc);
+            }
+          }),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(doctor, style: const TextStyle(fontWeight: FontWeight.bold), textDirection: TextDirection.rtl),
-                Text(specialty, textDirection: TextDirection.rtl),
-                Text(type, textDirection: TextDirection.rtl),
-                Text("التاريخ: ${date.day}/${date.month}/${date.year} - ${time.hour}:${time.minute.toString().padLeft(2, '0')}", textDirection: TextDirection.rtl),
+                Text(data['doctor_name']?.toString() ?? '', 
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                if (data['checkup_category']?.isNotEmpty ?? false) 
+                  Text("التخصص: ${data['checkup_category']}"),
+                if (data['type_of_examination']?.isNotEmpty ?? false) 
+                  Text("النوع: ${data['type_of_examination']}"),
+                Text("الوقت: ${formatTime(time)}"),
+                if (isAttended) 
+                  Text("تم الحضور", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -332,12 +466,11 @@ class _HomeContentState extends State<HomeContent> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Image.asset("assets/med.png", width: 50),
+          Image.asset("assets/med.png", width: 60),
           Expanded(
             child: Text(
-              "مرحباً $userName 👋",
+              "مرحباً ${userName.isNotEmpty ? userName : 'مستخدم'} 👋",
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              textDirection: TextDirection.rtl,
               textAlign: TextAlign.end,
             ),
           ),
@@ -346,50 +479,90 @@ class _HomeContentState extends State<HomeContent> {
     );
   }
 
+  String formatTime(DateTime time) {
+    return '${time.hour}:${time.minute.toString().padLeft(2, '0')}';
+  }
+
+  bool isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _buildWelcomeCard(),
-              const SizedBox(height: 20),
-              const Text("علاجاتك اليوم", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold), textDirection: TextDirection.rtl),
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final shownDoses = _showAllMeds 
+        ? allDoses 
+        : allDoses.take(allDoses.length > 3 ? 3 : allDoses.length).toList();
+
+    final shownAppointments = _showAllAppointments 
+        ? todaysAppointments 
+        : todaysAppointments.take(todaysAppointments.length > 3 ? 3 : todaysAppointments.length).toList();
+
+    return Padding(
+      padding: const EdgeInsets.all(12.0),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            _buildWelcomeCard(),
+            const SizedBox(height: 20),
+            
+            if (allDoses.isNotEmpty) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (allDoses.length > 3)
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _showAllMeds = !_showAllMeds;
+                        });
+                      },
+                      child: Text(_showAllMeds ? 'عرض أقل' : 'عرض الكل (${allDoses.length})'),
+                    ),
+                  const Text("علاجاتك اليوم", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
               const SizedBox(height: 8),
               Column(
-                children: todaysMeds.map((med) {
-                  final doseTime = nextDoseTimeMap[med.id];
-                  if (doseTime == null) return const SizedBox.shrink();
-                  return _medicineCard(
-                    med['Medicine_name'] ?? '',
-                    med['Medication_type'] ?? '',
-                    med,
-                    doseTime,
-                  );
-                }).toList(),
+                children: shownDoses.map((dose) => _medicineCard(dose)).toList(),
               ),
               const SizedBox(height: 20),
-              const Text("كشفواتك اليوم", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold), textDirection: TextDirection.rtl),
+            ],
+            
+            if (todaysAppointments.isNotEmpty) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (todaysAppointments.length > 3)
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _showAllAppointments = !_showAllAppointments;
+                        });
+                      },
+                      child: Text(_showAllAppointments ? 'عرض أقل' : 'عرض الكل (${todaysAppointments.length})'),
+                    ),
+                  const Text("كشفواتك اليوم", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
               const SizedBox(height: 8),
               Column(
-                children: todaysAppointments.map((appt) {
-                  final date = (appt['checkup_date'] as Timestamp).toDate();
-                  final time = (appt['checkup_time'] as Timestamp).toDate();
-                  return _checkupCard(
-                    appt['doctor_name'] ?? '',
-                    appt['checkup_category'] ?? '',
-                    appt['type_of_examination'] ?? '',
-                    date,
-                    time,
-                    appt,
-                  );
-                }).toList(),
+                children: shownAppointments.map((appt) => _checkupCard(appt)).toList(),
               ),
             ],
-          ),
+            
+            if (allDoses.isEmpty && todaysAppointments.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: Text("لا يوجد مواعيد أو علاجات لهذا اليوم"),
+                ),
+              ),
+          ],
         ),
       ),
     );
