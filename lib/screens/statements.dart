@@ -185,7 +185,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           centerTitle: true,
           backgroundColor: Colors.white,
           elevation: 0,
-          leading: const Icon(Icons.notifications_none, color: Colors.teal),
+        
         ),
         body: user == null
             ? const Center(child: Text('يجب تسجيل الدخول'))

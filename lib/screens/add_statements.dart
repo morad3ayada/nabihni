@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class AddExaminationPage extends StatefulWidget {
   const AddExaminationPage({super.key});
@@ -19,6 +21,98 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
   bool _isLoading = false;
 
   final List<String> examinationTypes = ['دوري', 'مستعجل', 'متابعة', 'جديد'];
+
+  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+
+  @override
+  void initState() {
+    super.initState();
+    _initNotifications();
+  }
+
+  Future<void> _initNotifications() async {
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const InitializationSettings initializationSettings =
+        InitializationSettings(android: initializationSettingsAndroid);
+
+    await _flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'examination_channel_id',
+      'مواعيد الكشوفات',
+      description: 'إشعارات تذكير بمواعيد الكشوفات',
+      importance: Importance.max,
+      playSound: true,
+      sound: RawResourceAndroidNotificationSound('notification_sound'),
+    );
+
+    await _flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+  }
+
+  Future<void> _scheduleExaminationNotification(DateTime examinationDateTime) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      // إشعار قبل يوم من الموعد
+      final dayBefore = examinationDateTime.subtract(const Duration(days: 1));
+      
+      // إشعار قبل ساعتين من الموعد
+      final twoHoursBefore = examinationDateTime.subtract(const Duration(hours: 2));
+
+      await FirebaseFirestore.instance.collection('scheduled_notifications').add({
+        'userId': user.uid,
+        'notificationType': 'examination_reminder',
+        'scheduledTime': Timestamp.fromDate(dayBefore),
+        'title': 'تذكير بموعد الكشف',
+        'body': 'لديك كشف غداً مع الدكتور ${doctorNameController.text}',
+        'createdAt': FieldValue.serverTimestamp(),
+        'delivered': false,
+      });
+
+      await FirebaseFirestore.instance.collection('scheduled_notifications').add({
+        'userId': user.uid,
+        'notificationType': 'examination_reminder',
+        'scheduledTime': Timestamp.fromDate(twoHoursBefore),
+        'title': 'تذكير بموعد الكشف',
+        'body': 'لديك كشف بعد ساعتين مع الدكتور ${doctorNameController.text}',
+        'createdAt': FieldValue.serverTimestamp(),
+        'delivered': false,
+      });
+
+      debugPrint('تم جدولة إشعارات الكشف بنجاح');
+    } catch (e) {
+      debugPrint('!!! فشل جدولة إشعارات الكشف: ${e.toString()}');
+    }
+  }
+
+  Future<void> _showConfirmationNotification() async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+      'examination_channel_id',
+      'مواعيد الكشوفات',
+      channelDescription: 'إشعارات تذكير بمواعيد الكشوفات',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+    );
+
+    const NotificationDetails platformChannelSpecifics =
+        NotificationDetails(android: androidPlatformChannelSpecifics);
+
+    await _flutterLocalNotificationsPlugin.show(
+      0,
+      'تمت إضافة الكشف بنجاح',
+      'تم جدولة إشعارات للكشف مع الدكتور ${doctorNameController.text}',
+      platformChannelSpecifics,
+    );
+  }
 
   Future<void> _submitExamination() async {
     if (doctorNameController.text.isEmpty ||
@@ -42,7 +136,7 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
         return;
       }
 
-      final DateTime checkupDateTime = DateTime(
+      final DateTime examinationDateTime = DateTime(
         selectedDate!.year,
         selectedDate!.month,
         selectedDate!.day,
@@ -50,20 +144,26 @@ class _AddExaminationPageState extends State<AddExaminationPage> {
         selectedTime!.minute,
       );
 
-      final Timestamp checkupDateOnly = Timestamp.fromDate(
+      final Timestamp examinationDateOnly = Timestamp.fromDate(
           DateTime(selectedDate!.year, selectedDate!.month, selectedDate!.day));
 
-      final Timestamp checkupDateTimeFull = Timestamp.fromDate(checkupDateTime);
+      final Timestamp examinationDateTimeFull = Timestamp.fromDate(examinationDateTime);
 
       await FirebaseFirestore.instance.collection('Patient_Records').add({
         'UserID': user.uid,
         'checkup_category': specialtyController.text,
-        'checkup_date': checkupDateOnly,
-        'checkup_time': checkupDateTimeFull,
+        'checkup_date': examinationDateOnly,
+        'checkup_time': examinationDateTimeFull,
         'doctor_name': doctorNameController.text,
         'type_of_examination': selectedType,
         'Created_at': FieldValue.serverTimestamp(),
       });
+
+      // جدولة الإشعارات
+      await _scheduleExaminationNotification(examinationDateTime);
+
+      // عرض إشعار تأكيد
+      await _showConfirmationNotification();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("تمت إضافة الكشف بنجاح")),

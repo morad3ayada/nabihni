@@ -65,6 +65,25 @@ class _MedicationPageState extends State<MedicationPage> {
     }
   }
 
+  Future<void> _selectTime(BuildContext context, TextEditingController controller) async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      builder: (BuildContext context, Widget? child) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: child!,
+        );
+      },
+    );
+    
+    if (picked != null) {
+      final now = DateTime.now();
+      final selectedTime = DateTime(now.year, now.month, now.day, picked.hour, picked.minute);
+      controller.text = DateFormat('HH:mm').format(selectedTime);
+    }
+  }
+
   Future<void> editMedication(String docId, Map<String, dynamic> data) async {
     final nameController =
         TextEditingController(text: data['Medicine_name'] ?? '');
@@ -72,10 +91,14 @@ class _MedicationPageState extends State<MedicationPage> {
         text: data['Medication_duration']?.toString() ?? '');
     final freqController =
         TextEditingController(text: data['Dosage_frequency']?.toString() ?? '');
+    
+    // تحويل الوقت الأول من القائمة إلى نص للعرض
+    final firstDoseTime = data['Dose_times']?.isNotEmpty == true
+        ? (data['Dose_times'][0] as Timestamp).toDate()
+        : DateTime.now().copyWith(hour: 8, minute: 0);
+    
     final timeController = TextEditingController(
-        text: data['Dose_times']?.isNotEmpty == true
-            ? (data['Dose_times'][0] as Timestamp).toDate().hour.toString()
-            : '8');
+        text: DateFormat('HH:mm').format(firstDoseTime));
 
     String selectedCategory = data['Medication_category'] ?? 'مسكن';
     String selectedMedicineForm = data['Medicine_form'] ?? 'أقراص';
@@ -136,9 +159,14 @@ class _MedicationPageState extends State<MedicationPage> {
                       const SizedBox(height: 16),
                       TextField(
                         controller: timeController,
-                        keyboardType: TextInputType.number,
+                        readOnly: true,
                         decoration: const InputDecoration(
-                            labelText: 'ساعة بداية الجرعات (مثال: 8)'),
+                          labelText: 'وقت الجرعة الأولى',
+                          suffixIcon: Icon(Icons.access_time),
+                        ),
+                        onTap: () async {
+                          await _selectTime(context, timeController);
+                        },
                       ),
                       const SizedBox(height: 16),
                       DropdownButtonFormField<int>(
@@ -176,7 +204,11 @@ class _MedicationPageState extends State<MedicationPage> {
     if (confirm == true) {
       final int durationDays =
           int.tryParse(durationController.text.trim()) ?? 7;
-      final int baseHour = int.tryParse(timeController.text.trim()) ?? 8;
+      
+      // تحليل وقت الجرعة الأولى من النص المدخل
+      final timeParts = timeController.text.split(':');
+      final int hour = int.tryParse(timeParts[0]) ?? 8;
+      final int minute = timeParts.length > 1 ? int.tryParse(timeParts[1]) ?? 0 : 0;
 
       // حساب مواعيد الجرعات الجديدة
       final List<DateTime> doseTimes = [];
@@ -184,12 +216,12 @@ class _MedicationPageState extends State<MedicationPage> {
 
       for (int day = 0; day < durationDays; day++) {
         for (int i = 0; i < dosageFrequency; i++) {
-          int hour = (baseHour + (interval * i).round()) % 24;
+          int calculatedHour = (hour + (interval * i).round()) % 24;
           final doseTime = DateTime.now()
               .add(Duration(days: day))
               .copyWith(
-                  hour: hour,
-                  minute: 0,
+                  hour: calculatedHour,
+                  minute: minute,
                   second: 0,
                   millisecond: 0,
                   microsecond: 0);
@@ -269,9 +301,7 @@ class _MedicationPageState extends State<MedicationPage> {
               style: TextStyle(color: Colors.teal, fontWeight: FontWeight.bold)),
           centerTitle: true,
           elevation: 1,
-          leading: IconButton(
-              icon: const Icon(Icons.notifications_none, color: Colors.teal),
-              onPressed: () {}),
+         
         ),
         body: user == null
             ? const Center(child: Text('يجب تسجيل الدخول'))
@@ -414,7 +444,6 @@ class MedicationCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                // تم استبدال الأيقونة بصورة الدواء
                 Image.asset(
                   'assets/pill.png',
                   height: 60,
